@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>StudBloxd</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;height:100%;background:#000;font:14px system-ui,sans-serif;color:#fff;overflow:hidden}
+#c{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;background:linear-gradient(#1b2a49,#0b1020);overflow:auto;display:flex;justify-content:center;z-index:5}
+#box{width:min(560px,94%);padding:16px 0}
+h1{text-align:center;letter-spacing:2px;color:#7ddc5a;text-shadow:3px 3px #000;font-size:40px;margin:8px 0}
+.card{background:#ffffff14;border:1px solid #fff3;border-radius:8px;padding:12px;margin:10px 0}
+h3{margin:0 0 6px}
+input,select,button{font:inherit;padding:8px;border-radius:6px;border:1px solid #fff4;background:#0006;color:#fff;margin:3px 0}
+button{background:#3b8f2f;cursor:pointer}button:hover{background:#4fb23f}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.srv{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #fff2;padding:6px 0}
+#prev{width:96px;height:192px;image-rendering:pixelated;background:#0004;border-radius:6px}
+#err{color:#ff8a8a;min-height:18px}
+#hud,#load{position:fixed;pointer-events:none;display:none}
+#hud{inset:0}#load{inset:0;place-items:center;font-size:22px;background:#000a;z-index:4}
+#cross{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:30px;mix-blend-mode:difference}
+#info{position:absolute;left:8px;top:8px;background:#0006;padding:6px 8px;border-radius:6px;font-size:12px;white-space:pre}
+#hb{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
+#hb canvas{width:44px;height:44px;image-rendering:pixelated;border:3px solid #fff5;background:#0008}
+#hb canvas.s{border-color:#fff}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="cross">+</div><div id="info"></div><div id="hb"></div></div>
+<div id="load">Generating world…</div>
+<div id="ui"><div id="box">
+<h1>StudBloxd</h1>
+<div class="card"><h3>Me</h3><div class="row">
+<canvas id="prev" width="16" height="32"></canvas>
+<div><input id="name" maxlength="16" placeholder="Your name"><br>
+<label>Skin (64×64 PNG): <input id="skinf" type="file" accept="image/png"></label><br>
+<button id="skinreset">Reset skin</button></div></div></div>
+<div id="srv">
+<div class="card"><h3>Servers</h3><div id="list">Loading…</div><button id="refresh">↻ Refresh</button></div>
+<div class="card"><h3>Create a server</h3>
+<input id="sname" placeholder="Server name" maxlength="32">
+<input id="sseed" placeholder="Seed (blank = random world)" maxlength="32">
+<select id="stype"><option value="normal">Normal world</option><option value="flat">Super flat</option></select>
+<label>Render distance <select id="rd"><option>3</option><option>4</option><option selected>6</option><option>8</option><option>10</option></select></label><br>
+<button id="create">Create &amp; join</button></div></div>
+<button id="resume" style="display:none;width:100%;font-size:18px"></button>
+<button id="leave" style="display:none">Leave server</button>
+<div id="err"></div>
+<div style="opacity:.6;font-size:12px">WASD move · Space jump · Shift sprint · Left click break · Right click place · 1-8 / wheel select · V third person</div>
+</div></div>
+
+<script id="gw" type="text/plain">
+let T,N,SEED;const H=80;
+const hs=s=>{let h=2166136261;for(const c of String(s)){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0};
+const rng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+function mk(seed){const r=rng(seed),p=[...Array(256).keys()];for(let i=255;i>0;i--){const j=r()*(i+1)|0;[p[i],p[j]]=[p[j],p[i]]}const P=[...p,...p];
+const f=t=>t*t*t*(t*(t*6-15)+10),l=(t,a,b)=>a+t*(b-a),g=(h,x,z)=>{h&=3;return h==0?x+z:h==1?x-z:h==2?-x+z:-x-z};
+return(x,z)=>{const X=Math.floor(x),Z=Math.floor(z);x-=X;z-=Z;const a=X&255,b=Z&255,u=f(x),v=f(z),
+aa=P[P[a]+b],ab=P[P[a]+b+1],ba=P[P[a+1]+b],bb=P[P[a+1]+b+1];
+return l(v,l(u,g(aa,x,z),g(ba,x-1,z)),l(u,g(ab,x,z-1),g(bb,x-1,z-1)))}}
+function init(s,t){SEED=hs(s);T=t;const m=k=>mk((SEED+k*9973)|0);N={c:m(1),h:m(2),d:m(3),r:m(4),t:m(5),w:m(6),g:m(7)}}
+const fbm=(n,x,z,o)=>{let a=1,f=1,s=0,t=0;for(let i=0;i<o;i++){s+=n(x*f,z*f)*a;t+=a;a*=.5;f*=2}return s/t};
+const cl=(v,a,b)=>v<a?a:v>b?b:v;
+// smooth layers: continents + hills + detail + ridged mountains (masked by a very large-scale noise)
+function hAt(x,z){const c=fbm(N.c,x/220,z/220,3),mt=cl((fbm(N.r,x/300,z/300,2)-.1)*4,0,1),rg=1-Math.abs(fbm(N.g,x/110,z/110,3))*2.2;
+return cl(Math.round(26+c*14+fbm(N.h,x/48,z/48,3)*9+mt*mt*(Math.max(rg,0)*20+8)+fbm(N.d,x/9,z/9,2)*1.5),2,H-8)}
+// biomes: big regions. 1 desert, 2 snow, 3 forest, 0 plains
+function bio(x,z){const t=fbm(N.t,x/320,z/320,2),w=fbm(N.w,x/240,z/240,2);return t>.17?1:t<-.17?2:w>.08?3:0}
+function surf(h,b){return h>=58?7:h>=48?3:(b==1||h<=23)?4:b==2?7:1}
+function cr(a,b){let s=Math.imul(SEED^Math.imul(a,374761393)^Math.imul(b,668265263),2246822519);s^=s>>>15;return rng(s)}
+function gen(cx,cz){const flat=T==='flat',d=new Uint8Array(256*H),x0=cx*16,z0=cz*16;
+for(let x=0;x<16;x++)for(let z=0;z<16;z++){const wx=x0+x,wz=z0+z,h=flat?4:hAt(wx,wz),top=flat?1:surf(h,bio(wx,wz)),sub=top==4?4:top==3?3:2,i=(x*16+z)*H;
+for(let y=0;y<=h;y++)d[i+y]=y==h?top:y>=h-3?sub:3}
+if(flat)return d;
+const set=(x,y,z,id,f)=>{x-=x0;z-=z0;if(x<0||x>15||z<0||z>15||y<0||y>=H)return;const i=(x*16+z)*H+y;if(f||!d[i])d[i]=id};
+// trees: one candidate per 5x5 cell (deterministic from seed+cell) => spacing, no overlaps, independent of chunk borders
+for(let gx=Math.floor((x0-3)/5);gx<=Math.floor((x0+18)/5);gx++)for(let gz=Math.floor((z0-3)/5);gz<=Math.floor((z0+18)/5);gz++){
+const r=cr(gx,gz),tx=gx*5+1+(r()*3|0),tz=gz*5+1+(r()*3|0),roll=r(),big=r();
+if(tx<x0-3||tx>x0+18||tz<z0-3||tz>z0+18)continue;
+const b=bio(tx,tz);if(roll>[.12,0,.3,.7][b])continue;
+const h=hAt(tx,tz),s=surf(h,b);if((s!=1&&s!=7)||h>=48)continue;
+if([hAt(tx+1,tz),hAt(tx-1,tz),hAt(tx,tz+1),hAt(tx,tz-1)].some(v=>Math.abs(v-h)>2))continue;
+let th,top;
+if(b==2){th=6+(r()*4|0);top=h+th;
+for(let dy=th+1;dy>=3;dy--){const lv=th+1-dy,rad=Math.min(3,(lv+1)>>1);
+for(let dx=-rad;dx<=rad;dx++)for(let dz=-rad;dz<=rad;dz++){if(rad>=2&&Math.abs(dx)==rad&&Math.abs(dz)==rad)continue;set(tx+dx,h+dy,tz+dz,8)}}}
+else{const bg=b==3&&big<.15;th=bg?6+(r()*3|0):4+(r()*3|0);top=h+th;
+const rs=bg?[2,3,3,2,1]:[2,2,1,1],y0=bg?-3:-2;
+rs.forEach((rad,k)=>{const dy=y0+k;for(let dx=-rad;dx<=rad;dx++)for(let dz=-rad;dz<=rad;dz++){
+if(Math.abs(dx)==rad&&Math.abs(dz)==rad&&rad>1&&(dy>=0||r()<.5))continue;if(rad==1&&Math.abs(dx)==1&&Math.abs(dz)==1&&dy>=0)continue;set(tx+dx,top+dy,tz+dz,6)}})}
+for(let y=h+1;y<=top;y++)set(tx,y,tz,5,1)}
+return d}
+onmessage=e=>{const m=e.data;if(m.init){init(m.seed,m.type);return}const d=gen(m.cx,m.cz);postMessage({cx:m.cx,cz:m.cz,d},[d.buffer])};
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i),H=80,K={};
+const B={1:[0,1,2],2:[2,2,2],3:[3,3,3],4:[4,4,4],5:[6,5,6],6:[7,7,7],7:[8,9,2],8:[10,10,10]},HB=[1,2,3,4,5,6,7,8];
+/* ---------- procedural texture atlas (4x4 tiles of 16px) ---------- */
+const AT=document.createElement('canvas');AT.width=AT.height=64;
+(()=>{const g=AT.getContext('2d'),hs=(x,y,i)=>{const s=Math.sin(x*12.9898+y*78.233+i*37.719)*43758.5453;return s-Math.floor(s)};
+const P=(i,c,a,o)=>{for(let y=0;y<16;y++)for(let x=0;x<16;x++){const v=(o&&o(x,y,hs(x,y,i+9)))||c,k=1+(hs(x,y,i)-.5)*a;g.fillStyle=`rgb(${v[0]*k|0},${v[1]*k|0},${v[2]*k|0})`;g.fillRect((i&3)*16+x,(i>>2)*16+y,1,1)}};
+const D=[134,96,67],G=[95,159,53],S=[245,250,250];
+P(0,G,.25);P(1,D,.25,(x,y,r)=>y<4||(y<6&&r>.5)?G:0);P(2,D,.3);P(3,[125,125,125],.3);P(4,[219,207,142],.15);
+P(5,[102,81,51],.25,x=>x%4==0?[80,62,38]:0);P(6,[160,130,80],.2,(x,y)=>Math.max(Math.abs(x-7.5),Math.abs(y-7.5))>6?[102,81,51]:0);
+P(7,[58,125,36],.5);P(8,S,.06);P(9,D,.25,(x,y,r)=>y<4||(y<6&&r>.5)?S:0);P(10,[35,90,50],.5)})();
+const NEAR=t=>{t.magFilter=t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;return t};
+const atex=NEAR(new THREE.CanvasTexture(AT)),CM=new THREE.MeshBasicMaterial({map:atex,vertexColors:true});
+/* ---------- renderer ---------- */
+const R=new THREE.WebGLRenderer({canvas:$('c')});R.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(75,1,.1,400);cam.rotation.order='YXZ';
+scene.background=new THREE.Color(0x87ceeb);
+function size(){R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',size);size();
+/* ---------- chunks ---------- */
+const chunks=new Map(),edits=new Map();let RD=6,W=[],q=[],inf=0,rr=0,lastC='',meta=null,ws=null,inGame=false,spawned=false;
+const FACES=[
+{n:[1,0,0],c:[[1,0,1],[1,0,0],[1,1,0],[1,1,1]],s:.8,t:1},{n:[-1,0,0],c:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]],s:.8,t:1},
+{n:[0,1,0],c:[[0,1,1],[1,1,1],[1,1,0],[0,1,0]],s:1,t:0},{n:[0,-1,0],c:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]],s:.5,t:2},
+{n:[0,0,1],c:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]],s:.65,t:1},{n:[0,0,-1],c:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]],s:.65,t:1}];
+function raw(x,y,z){if(y<0)return 1;if(y>=H)return 0;const c=chunks.get((x>>4)+','+(z>>4));return c&&c.d?c.d[((x&15)*16+(z&15))*H+y]:-1}
+function build(c){
+ if(![[1,0],[-1,0],[0,1],[0,-1]].every(([a,b])=>{const n=chunks.get((c.cx+a)+','+(c.cz+b));return n&&n.d}))return false;
+ if(c.mesh){scene.remove(c.mesh);c.mesh.geometry.dispose();c.mesh=null}
+ const d=c.d,bx=c.cx*16,bz=c.cz*16,Pp=[],U=[],C=[],I=[];let n=0;
+ const g=(x,y,z)=>x>=0&&x<16&&z>=0&&z<16?(y<0?1:y>=H?0:d[(x*16+z)*H+y]):raw(bx+x,y,bz+z);
+ for(let x=0;x<16;x++)for(let z=0;z<16;z++)for(let y=0;y<H;y++){const id=d[(x*16+z)*H+y];if(!id)continue;
+  const sh=1-((((bx+x)*73856093)^(y*19349663)^((bz+z)*83492791))&7)/60;
+  for(const f of FACES){if(g(x+f.n[0],y+f.n[1],z+f.n[2])!==0)continue;
+   const t=B[id][f.t],tx=(t&3)/4,ty=1-((t>>2)+1)/4,e=.0015,sc=f.s*sh;
+   f.c.forEach(p=>{Pp.push(bx+x+p[0],y+p[1],bz+z+p[2]);C.push(sc,sc,sc)});
+   U.push(tx+e,ty+e,tx+.25-e,ty+e,tx+.25-e,ty+.25-e,tx+e,ty+.25-e);I.push(n,n+1,n+2,n,n+2,n+3);n+=4}}
+ c.dirty=0;if(!n)return true;
+ const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.Float32BufferAttribute(Pp,3));G.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+ G.setAttribute('color',new THREE.Float32BufferAttribute(C,3));G.setIndex(I);G.computeBoundingSphere();
+ c.mesh=new THREE.Mesh(G,CM);scene.add(c.mesh);return true}
+function pump(){while(inf<4&&q.length){const[cx,cz]=q.shift(),k=cx+','+cz;if(chunks.has(k))continue;chunks.set(k,{cx,cz});inf++;W[rr++%W.length].postMessage({cx,cz})}}
+function onGen(e){const{cx,cz,d}=e.data,k=cx+','+cz,c=chunks.get(k);inf--;
+ if(c){c.d=d;const ed=edits.get(k);if(ed)ed.forEach((v,i)=>d[i]=v);c.dirty=1}pump()}
+function upd(){const pc=Math.floor(P.x/16),pz=Math.floor(P.z/16),key=pc+','+pz+','+RD;if(key===lastC)return;lastC=key;
+ for(const[k,c]of chunks){const dd=Math.max(Math.abs(c.cx-pc),Math.abs(c.cz-pz));
+  if(c.d&&dd>RD+3){if(c.mesh){scene.remove(c.mesh);c.mesh.geometry.dispose()}chunks.delete(k)}else if(c.mesh)c.mesh.visible=dd<=RD}
+ q=[];for(let dx=-RD-1;dx<=RD+1;dx++)for(let dz=-RD-1;dz<=RD+1;dz++)if(dx*dx+dz*dz<=(RD+1)*(RD+1)&&!chunks.has((pc+dx)+','+(pz+dz)))q.push([pc+dx,pz+dz,dx*dx+dz*dz]);
+ q.sort((a,b)=>a[2]-b[2]);pump()}
+function meshing(){const pc=Math.floor(P.x/16),pz=Math.floor(P.z/16);let n=0;
+ for(const c of chunks.values()){if(!c.dirty||!c.d||Math.max(Math.abs(c.cx-pc),Math.abs(c.cz-pz))>RD)continue;if(build(c)&&++n>=2)break}}
+function setBlock(x,y,z,id,net){if(y<0||y>=H)return;const cx=x>>4,cz=z>>4,k=cx+','+cz,i=((x&15)*16+(z&15))*H+y;
+ let e=edits.get(k);if(!e)edits.set(k,e=new Map());e.set(i,id); // edits survive unloading
+ const c=chunks.get(k);if(c&&c.d){c.d[i]=id;build(c)||(c.dirty=1);
+  const rm=(a,b)=>{const n=chunks.get(a+','+b);if(n&&n.d)build(n)||(n.dirty=1)};
+  if((x&15)==0)rm(cx-1,cz);if((x&15)==15)rm(cx+1,cz);if((z&15)==0)rm(cx,cz-1);if((z&15)==15)rm(cx,cz+1)}
+ if(!net&&ws&&ws.readyState==1)ws.send(JSON.stringify({t:'b',x,y,z,id}))}
+/* ---------- Minecraft 64x64 skin player model ---------- */
+// each face: 4 corners (bottom-left,bottom-right,top-right,top-left as seen from outside) + UV rect in the 64x64 atlas
+const FS=[
+[[[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,1,-1]],(u,v,w,h,d)=>[u+d,v+d,w,h]],            // front  (-Z)
+[[[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]],(u,v,w,h,d)=>[u+2*d+w,v+d,w,h]],            // back   (+Z)
+[[[1,-1,1],[1,-1,-1],[1,1,-1],[1,1,1]],(u,v,w,h,d)=>[u,v+d,d,h]],                  // right  (+X)
+[[[-1,-1,-1],[-1,-1,1],[-1,1,1],[-1,1,-1]],(u,v,w,h,d)=>[u+d+w,v+d,d,h]],          // left   (-X)
+[[[1,1,-1],[-1,1,-1],[-1,1,1],[1,1,1]],(u,v,w,h,d)=>[u+d,v,w,d]],                  // top
+[[[1,-1,1],[-1,-1,1],[-1,-1,-1],[1,-1,-1]],(u,v,w,h,d)=>[u+d+w,v,w,d]]];           // bottom
+function box(w,h,d,u,v,inf){const Pp=[],U=[],I=[],hx=w/2+inf,hy=h/2+inf,hz=d/2+inf;
+ FS.forEach(([c,r],k)=>{const[x,y,rw,rh]=r(u,v,w,h,d);c.forEach(s=>Pp.push(s[0]*hx,s[1]*hy,s[2]*hz));
+  [[x,y+rh],[x+rw,y+rh],[x+rw,y],[x,y]].forEach(p=>U.push(p[0]/64,1-p[1]/64));I.push(k*4,k*4+1,k*4+2,k*4,k*4+2,k*4+3)});
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(Pp,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));g.setIndex(I);return g}
+function defSkin(g){const f=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x,y,w,h)},sk='#c58c65',cy='#3aa6b8',bl='#3b3f99';
+ g.clearRect(0,0,64,64);f(0,0,32,16,sk);f(8,0,8,8,'#4a2f1b');f(0,8,32,3,'#4a2f1b');f(24,8,8,8,'#4a2f1b');
+ f(9,12,2,1,'#fff');f(13,12,2,1,'#fff');f(9,12,1,1,'#3a3a9a');f(14,12,1,1,'#3a3a9a');f(11,14,2,1,'#a0522d');
+ f(16,16,24,16,cy);f(40,16,16,16,sk);f(40,20,16,4,cy);f(32,48,16,16,sk);f(32,52,16,4,cy);
+ f(0,16,16,16,bl);f(0,28,16,4,'#555');f(16,48,16,16,bl);f(16,60,16,4,'#555')}
+function makePlayer(){
+ const cv=document.createElement('canvas');cv.width=cv.height=64;const cx=cv.getContext('2d');defSkin(cx);
+ const tex=NEAR(new THREE.CanvasTexture(cv)),mat=new THREE.MeshBasicMaterial({map:tex,alphaTest:.01}),root=new THREE.Group(),inner=new THREE.Group();
+ inner.scale.setScalar(1.8/32);root.add(inner); // 1 skin pixel = 1/16 block; feet at root origin
+ const part=(w,h,d,u,v,ou,ov,x,y,my,inf)=>{const g=new THREE.Group();g.position.set(x,y,0);
+  [[u,v,0],[ou,ov,inf]].forEach(([a,b,i])=>{const m=new THREE.Mesh(box(w,h,d,a,b,i),mat);m.position.y=my;g.add(m)});inner.add(g);return g};
+ const o={root,inner,tex,
+  head:part(8,8,8,0,0,32,0,0,24,4,.5),body:part(8,12,4,16,16,16,32,0,18,0,.25),
+  ra:part(4,12,4,40,16,40,32,6,24,-6,.25),la:part(4,12,4,32,48,48,48,-6,24,-6,.25),
+  rl:part(4,12,4,0,16,0,32,2,12,-6,.25),ll:part(4,12,4,16,48,0,48,-2,12,-6,.25),
+  applySkin(url){if(typeof url!=='string'||!url.startsWith('data:image/png'))return;const im=new Image();
+   im.onload=()=>{if(im.width==64&&im.height==64){cx.clearRect(0,0,64,64);cx.drawImage(im,0,0);tex.needsUpdate=true;o.onskin&&o.onskin(cv)}};im.src=url},
+  cv};
+ return o}
+function anim(m,sp,t){const s=Math.sin(t*9)*Math.min(sp,6)/6*.9;m.rl.rotation.x=s;m.ll.rotation.x=-s;m.ra.rotation.x=-s;m.la.rotation.x=s}
+function tag(name){const c=document.createElement('canvas');c.width=256;c.height=64;const g=c.getContext('2d');g.font='bold 34px sans-serif';g.textAlign='center';g.fillStyle='#0008';g.fillRect(0,8,256,48);g.fillStyle='#fff';g.fillText(name,128,45);
+ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));s.scale.set(1.6,.4,1);s.position.y=2.3;return s}
+/* ---------- local player + UI skin handling ---------- */
+const me=makePlayer(),others=new Map();scene.add(me.root);
+function preview(cv){const p=$('prev').getContext('2d');p.clearRect(0,0,16,32);p.imageSmoothingEnabled=false;
+ [[8,8,8,8,4,0],[40,8,8,8,4,0],[20,20,8,12,4,8],[20,36,8,12,4,8],[44,20,4,12,0,8],[44,36,4,12,0,8],[36,52,4,12,12,8],[52,52,4,12,12,8],[4,20,4,12,4,20],[4,36,4,12,4,20],[20,52,4,12,8,20],[4,52,4,12,8,20]]
+ .forEach(([a,b,w,h,x,y])=>p.drawImage(cv,a,b,w,h,x,y,w,h))}
+me.onskin=preview;preview(me.cv);
+const mySkin=()=>me.cv.toDataURL('image/png');
+function saveSkin(){try{localStorage.setItem('sb_skin',mySkin())}catch{}if(ws&&ws.readyState==1)ws.send(JSON.stringify({t:'skin',skin:mySkin()}))}
+try{const s=localStorage.getItem('sb_skin');if(s)me.applySkin(s);$('name').value=localStorage.getItem('sb_name')||''}catch{}
+const err=m=>$('err').textContent=m||'';
+$('skinf').onchange=e=>{const f=e.target.files[0];if(!f)return;err();
+ if(f.type!=='image/png'){err('Skin must be a PNG file.');return}
+ const im=new Image();im.onload=()=>{if(im.width!==64||im.height!==64){err(`Skin must be 64×64 (standard Minecraft layout). This one is ${im.width}×${im.height}.`);return}
+  const c=document.createElement('canvas');c.width=c.height=64;c.getContext('2d').drawImage(im,0,0);me.onskin=preview;
+  me.applySkin(c.toDataURL('image/png'));setTimeout(saveSkin,150)};im.src=URL.createObjectURL(f)};
+$('skinreset').onclick=()=>{defSkin(me.cv.getContext('2d'));me.tex.needsUpdate=true;preview(me.cv);saveSkin()};
+/* ---------- server list / create / join ---------- */
+async function refresh(){try{const l=await(await fetch('/api/servers')).json(),el=$('list');el.textContent='';
+ if(!l.length){el.textContent='No servers yet — create one below.';return}
+ l.forEach(s=>{const r=document.createElement('div');r.className='srv';const a=document.createElement('div');
+  a.textContent=`${s.name} — ${s.type==='flat'?'Super flat':'Normal'} · seed ${s.seed} · ${s.players} online`;
+  const b=document.createElement('button');b.textContent='Join';b.onclick=()=>join(s.id);r.append(a,b);el.append(r)})}
+ catch{$('list').textContent='';err('Cannot reach the StudBloxd server. Open this page from your deployed Cloudflare Worker URL.')}}
+$('refresh').onclick=refresh;refresh();
+$('create').onclick=async()=>{err();try{const r=await fetch('/api/servers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('sname').value.trim(),seed:$('sseed').value.trim(),type:$('stype').value})});join((await r.json()).id)}catch{err('Could not create server.')}};
+const P={x:8.5,y:90,z:8.5,vx:0,vy:0,vz:0,yaw:0,pitch:0,ground:false};let third=false,sel=0;
+function join(id){err();RD=+$('rd').value;const nm=$('name').value.trim()||'Player';try{localStorage.setItem('sb_name',nm)}catch{}
+ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/'+id);
+ ws.onopen=()=>ws.send(JSON.stringify({t:'hi',name:nm,skin:mySkin()}));
+ ws.onerror=()=>err('Connection failed.');
+ ws.onclose=()=>{if(inGame){document.exitPointerLock();showMenu(2);$('resume').style.display='none';err('Disconnected from server.')}};
+ ws.onmessage=e=>{const m=JSON.parse(e.data);
+  if(m.t==='welcome')begin(m);else if(m.t==='join')addO(m);
+  else if(m.t==='leave'){const o=others.get(m.id);if(o){scene.remove(o.m.root);others.delete(m.id)}}
+  else if(m.t==='p'){const o=others.get(m.id);if(o){if(!o.init){o.init=1;o.m.root.position.set(m.x,m.y,m.z);o.m.root.visible=true}Object.assign(o,{tx:m.x,ty:m.y,tz:m.z,ry:m.ry,rx:m.rx})}}
+  else if(m.t==='b')setBlock(m.x,m.y,m.z,m.id,1);
+  else if(m.t==='skin'){const o=others.get(m.id);o&&o.m.applySkin(m.skin)}}}
+function addO(p){const m=makePlayer();m.applySkin(p.skin);m.root.add(tag(p.name));m.root.visible=false;scene.add(m.root);others.set(p.id,{m,tx:0,ty:0,tz:0,ry:0,rx:0})}
+function begin(m){meta=m.meta;const url=URL.createObjectURL(new Blob([$('gw').textContent],{type:'text/javascript'}));
+ W=[0,1].map(()=>{const w=new Worker(url);w.postMessage({init:1,seed:meta.seed,type:meta.type});w.onmessage=onGen;return w});
+ m.edits.forEach(([x,y,z,id])=>{const k=(x>>4)+','+(z>>4);let e=edits.get(k);if(!e)edits.set(k,e=new Map());e.set(((x&15)*16+(z&15))*H+y,id)});
+ m.players.forEach(addO);scene.fog=new THREE.Fog(0x87ceeb,RD*9,RD*15.5);
+ inGame=true;$('ui').style.display='none';$('hud
